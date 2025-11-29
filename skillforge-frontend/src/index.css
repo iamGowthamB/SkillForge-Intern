@@ -1,0 +1,4 @@
+@import "tailwindcss";
+html {
+  overflow-y: scroll; /* Always show vertical scrollbar */
+}
