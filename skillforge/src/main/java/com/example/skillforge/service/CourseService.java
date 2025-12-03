@@ -2,14 +2,13 @@ package com.example.skillforge.service;
 
 import com.example.skillforge.dto.request.CourseRequest;
 import com.example.skillforge.dto.response.CourseResponse;
-import com.example.skillforge.model.entity.Course;
-import com.example.skillforge.model.entity.CourseProgress;
-import com.example.skillforge.model.entity.Instructor;
-import com.example.skillforge.model.entity.User;
+import com.example.skillforge.model.entity.*;
 import com.example.skillforge.repository.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -22,7 +21,7 @@ public class CourseService {
     private final EnrollmentRepository enrollmentRepository;
     private final UserRepository userRepository;
     private final CourseProgressRepository courseProgressRepository;
-
+    private final StudentRepository studentRepository;
 
     @Transactional
     public CourseResponse createCourse(CourseRequest request, Long userId) {
@@ -111,44 +110,190 @@ public class CourseService {
         courseRepository.delete(course);
     }
 
-    private CourseResponse mapToCourseResponse(Course course, Long userId) {
+//    private CourseResponse mapToCourseResponse(Course course, Long userId) {
+//
+//        User instructorUser = course.getInstructor().getUser();
+//        // check enrollment
+//        Boolean isEnrolled = false;
+//        // get course progress for this student
+//        Integer progressPercent = 0;
+//
+//
+//        if (userId != null) {
+//
+//            Student student = studentRepository.findByUserId(userId).orElseThrow(() -> new RuntimeException("Student Not Found"));
+//            Long studentID = student.getId();
+//
+//            isEnrolled = enrollmentRepository.existsByStudentIdAndCourseId(studentID, course.getId());
+//
+//            progressPercent = courseProgressRepository
+//                    .findByStudentIdAndCourseId(studentID, course.getId())
+//                    .map(CourseProgress::getProgressPercent)
+//                    .orElse(0);
+//
+//            System.out.println("🔥🔥🔥From MapToCourse To check Progresss🔥🔥🔥");
+//            System.out.println(progressPercent);
+//
+//        }
+//
+//
+//        return CourseResponse.builder()
+//                .id(course.getId())
+//                .title(course.getTitle())
+//                .description(course.getDescription())
+//                .instructorId(instructorUser.getId())
+//                .instructorName(instructorUser.getName())
+//                .difficultyLevel(course.getDifficultyLevel())
+//                .thumbnailUrl(course.getThumbnailUrl())
+//                .duration(course.getDuration())
+//                .totalTopics(course.getTopics().size())
+//                .totalEnrollments(course.getTotalEnrollments())
+//                .isPublished(course.getIsPublished())
+//                .isEnrolled(isEnrolled)
+//                .createdAt(course.getCreatedAt())
+//
+//                // ⭐⭐ FIXED — Send progress to frontend ⭐⭐
+//                .progressPercent(progressPercent)
+//
+//                .build();
+////    }
+//private CourseResponse mapToCourseResponse(Course course, Long userId) {
+//
+//    User instructorUser = course.getInstructor().getUser();
+//
+//    // defaults
+//    Boolean isEnrolled = false;
+//    Integer progressPercent = 0;
+//    LocalDateTime lastAccessed = null;
+//
+//    if (userId != null) {
+//        // find Student by userId (this returns the Student entity that has its own internal PK)
+//        Student student = studentRepository.findByUserId(userId)
+//                .orElseThrow(() -> new RuntimeException("Student Not Found"));
+//        Long studentInternalId = student.getId();
+//
+//        // 1) Check enrollment using internal Student id (this is correct for EnrollmentRepository)
+//        Enrollment enrollment = enrollmentRepository
+//                .findByStudentIdAndCourseId(studentInternalId, course.getId())
+//                .orElse(null);
+//
+//        isEnrolled = (enrollment != null);
+//
+//        // 2) Try to find CourseProgress. NOTE: some code paths may have saved CourseProgress.studentId
+//        //    as the frontend's userId, while others may have used the internal student id.
+//        //    Try userId first (safe), then studentInternalId.
+//        CourseProgress cp = null;
+//        if (userId != null) {
+//            cp = courseProgressRepository.findByStudentIdAndCourseId(userId, course.getId()).orElse(null);
+//        }
+//        if (cp == null && studentInternalId != null) {
+//            cp = courseProgressRepository.findByStudentIdAndCourseId(studentInternalId, course.getId()).orElse(null);
+//        }
+//
+//        // 3) Resolve progress + lastAccessed with fallbacks:
+//        if (cp != null) {
+//            progressPercent = cp.getProgressPercent() != null ? cp.getProgressPercent() : 0;
+//            lastAccessed = cp.getLastUpdated();
+//        } else if (enrollment != null) {
+//            // fallback to Enrollment values
+//            progressPercent = enrollment.getCompletionPercentage() != null ? enrollment.getCompletionPercentage() : 0;
+//            lastAccessed = enrollment.getLastAccessedAt();
+//        }
+//
+//        System.out.println("🔥 Progress for course " + course.getId() + " (userId=" + userId +
+//                ", studentInternalId=" + studentInternalId + "): " + progressPercent + " lastAccessed=" + lastAccessed);
+//    }
+//
+//    return CourseResponse.builder()
+//            .id(course.getId())
+//            .title(course.getTitle())
+//            .description(course.getDescription())
+//            .instructorId(instructorUser.getId())
+//            .instructorName(instructorUser.getName())
+//            .difficultyLevel(course.getDifficultyLevel())
+//            .thumbnailUrl(course.getThumbnailUrl())
+//            .duration(course.getDuration())
+//            .totalTopics(course.getTopics().size())
+//            .totalEnrollments(course.getTotalEnrollments())
+//            .isPublished(course.getIsPublished())
+//            .isEnrolled(isEnrolled)
+//            .createdAt(course.getCreatedAt())
+//            .progressPercent(progressPercent)
+//            .lastAccessed(lastAccessed)
+//            .build();
+//}
+private CourseResponse mapToCourseResponse(Course course, Long userId) {
 
-        User instructorUser = course.getInstructor().getUser();
+    User instructorUser = course.getInstructor().getUser();
 
-        // check enrollment
-        Boolean isEnrolled = false;
-        if (userId != null) {
-            isEnrolled = enrollmentRepository.existsByStudentIdAndCourseId(userId, course.getId());
+    // defaults
+    Boolean isEnrolled = false;
+    Integer progressPercent = 0;
+    LocalDateTime lastAccessed = null;
+
+    if (userId != null) {
+
+        // 1️⃣ Fetch Student using userId → get internal student.id
+        Student student = studentRepository.findByUserId(userId)
+                .orElseThrow(() -> new RuntimeException("Student Not Found"));
+        Long studentInternalId = student.getId();
+
+        // 2️⃣ Check enrollment correctly using internal student.id
+        Enrollment enrollment = enrollmentRepository
+                .findByStudentIdAndCourseId(studentInternalId, course.getId())
+                .orElse(null);
+
+        isEnrolled = (enrollment != null);
+
+        // 3️⃣ Find CourseProgress with dual fallback (userId → studentId)
+        CourseProgress cp = courseProgressRepository
+                .findByStudentIdAndCourseId(userId, course.getId())
+                .orElse(null);
+
+        if (cp == null) {
+            cp = courseProgressRepository
+                    .findByStudentIdAndCourseId(studentInternalId, course.getId())
+                    .orElse(null);
         }
 
-        // get course progress for this student
-        Integer progressPercent = null;
-        if (userId != null) {
-            progressPercent = courseProgressRepository
-                    .findByStudentIdAndCourseId(userId, course.getId())
-                    .map(CourseProgress::getProgressPercent)
-                    .orElse(0);
+        // 4️⃣ Extract progress + lastAccessed
+        if (cp != null) {
+            progressPercent = cp.getProgressPercent() != null ? cp.getProgressPercent() : 0;
+            lastAccessed = cp.getLastUpdated();
+        } else if (enrollment != null) {
+            // fallback (if old data in enrollment table)
+            progressPercent = enrollment.getCompletionPercentage() != null
+                    ? enrollment.getCompletionPercentage()
+                    : 0;
+
+            lastAccessed = enrollment.getLastAccessedAt();
         }
 
-        return CourseResponse.builder()
-                .id(course.getId())
-                .title(course.getTitle())
-                .description(course.getDescription())
-                .instructorId(instructorUser.getId())
-                .instructorName(instructorUser.getName())
-                .difficultyLevel(course.getDifficultyLevel())
-                .thumbnailUrl(course.getThumbnailUrl())
-                .duration(course.getDuration())
-                .totalTopics(course.getTopics().size())
-                .totalEnrollments(course.getTotalEnrollments())
-                .isPublished(course.getIsPublished())
-                .isEnrolled(isEnrolled)
-                .createdAt(course.getCreatedAt())
-
-                // ⭐⭐ FIXED — Send progress to frontend ⭐⭐
-                .progressPercent(progressPercent)
-
-                .build();
+        System.out.println("🔥 Progress for course " + course.getId() +
+                " | userId=" + userId +
+                " | studentInternalId=" + studentInternalId +
+                " | progress=" + progressPercent +
+                " | lastAccessed=" + lastAccessed);
     }
+
+    return CourseResponse.builder()
+            .id(course.getId())
+            .title(course.getTitle())
+            .description(course.getDescription())
+            .instructorId(instructorUser.getId())
+            .instructorName(instructorUser.getName())
+            .difficultyLevel(course.getDifficultyLevel())
+            .thumbnailUrl(course.getThumbnailUrl())
+            .duration(course.getDuration())
+            .totalTopics(course.getTopics().size())
+            .totalEnrollments(course.getTotalEnrollments())
+            .isPublished(course.getIsPublished())
+            .isEnrolled(isEnrolled)
+            .createdAt(course.getCreatedAt())
+            .progressPercent(progressPercent)
+            .lastAccessed(lastAccessed)
+            .build();
+}
+
 
 }

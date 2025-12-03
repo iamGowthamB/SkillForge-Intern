@@ -10,14 +10,21 @@ export const courseService = {
   async getPublishedCourses(studentId = null) {
     const params = studentId ? { studentId } : {}
     const response = await api.get('/courses/published', { params })
+    console.log("courseService.getPublishedCourses response:", response)
     return response.data
   },
 
-  async getCourseById(id, studentId = null) {
-    const params = studentId ? { studentId } : {}
-    const response = await api.get(`/courses/${id}`, { params })
-    return response.data
-  },
+  // async getCourseById(id, studentId = null) {
+  //   const params = studentId ? { studentId } : {}
+  //   const response = await api.get(`/courses/${id}`, { params })
+  //   return response.data
+  // },
+  async getCourseById(courseId, studentId) {
+  if (studentId) {
+    return api.get(`/courses/${courseId}?studentId=${studentId}`);
+  }
+  return api.get(`/courses/${courseId}`);
+},
 
   async getInstructorCourses(instructorId) {
     const response = await api.get(`/courses/instructor/${instructorId}`)

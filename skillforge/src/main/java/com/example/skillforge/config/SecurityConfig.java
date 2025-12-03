@@ -36,16 +36,21 @@ public class SecurityConfig {
                         .frameOptions(frame -> frame.disable())  // ✅ UPDATED - No deprecation
                 )
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/api/auth/**", "/api/health").permitAll()
                         .requestMatchers(
                                 "/api/auth/**",
                                 "/api/public/**",
+                                "/api/health",
+                                "/api/materials/**",
+                                "/api/progress/material/complete",
+                                "/api/progress/topic/add-time",
                                 "/api/progress/topic/complete",
                                 "/api/progress/student/**",
                                 "/api/adaptive/next-topic",
                                 "/api/topics/**",
-                                "/api/entrollments"
-                        ).permitAll()
+                                "/api/enrollments/**",
+                                "/api/progress/**"
+                        ).permitAll()  // ALL UNPROTECTED ENDPOINTS HERE
+
                         .requestMatchers("/api/materials/view-pdf/**").permitAll()  // ✅ Allow PDF viewing
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .requestMatchers("/api/materials/link").hasAnyRole("INSTRUCTOR", "ADMIN")

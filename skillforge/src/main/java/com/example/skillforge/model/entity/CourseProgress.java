@@ -29,5 +29,7 @@ public class CourseProgress {
     @Column(name = "skill_score")
     private Integer skillScore;    // NEW FIELD
 
+    private Integer totalTimeMinutes;
+
 
 }

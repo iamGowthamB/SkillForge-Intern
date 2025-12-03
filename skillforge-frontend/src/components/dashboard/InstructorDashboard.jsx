@@ -178,8 +178,11 @@ const InstructorDashboard = () => {
                 <div 
                   className="flex-1 cursor-pointer"
                   // onClick={() => navigate(`/courses/${course.id}`)}
-                  onClick={() => navigate(`/courses/${course.id}`, { state: { from: 'dashboard' } })}
+                  // onClick={() => navigate(`/courses/${course.id}`, { state: { from: 'dashboard' } })}
+                  onClick={() => navigate(`/courses/${course.id}`, { state: { from: 'dashboard', courseId: course.id } })}
+
                 >
+
                   <div className="flex items-center space-x-3 mb-1">
                     <h3 className="font-semibold text-gray-900">{course.title}</h3>
                     <span className={`px-2 py-1 rounded-full text-xs font-medium ${

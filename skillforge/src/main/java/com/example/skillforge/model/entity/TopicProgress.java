@@ -20,4 +20,20 @@ public class TopicProgress {
     private Long topicId;
     private Boolean completed = false;
     private LocalDateTime completedAt;
+
+    // NEW: cumulative seconds spent on this topic
+    @Column(name = "time_spent_seconds", nullable = false)
+    private Long timeSpentSeconds = 0L;
+
+    private LocalDateTime lastUpdated;
+
+    @PrePersist
+    protected void onCreate() {
+        lastUpdated = LocalDateTime.now();
+    }
+
+    @PreUpdate
+    protected void onUpdate() {
+        lastUpdated = LocalDateTime.now();
+    }
 }

@@ -28,7 +28,9 @@ api.interceptors.response.use(
   (error) => {
     console.log("AXIOS ERROR:", error.response?.status, error.response?.data);
     console.log("AXIOS ERROR FULL:", error);
-    if (error.response?.status === 401||error.response?.status === 403 ) {
+
+
+    if (error.response?.status === 401 ) {
       localStorage.removeItem('token')
       localStorage.removeItem('user')
       toast.error("Session expired. Please log in again.");
@@ -38,6 +40,13 @@ api.interceptors.response.use(
         window.location.replace("/login");
       }, 5000);  // 🕒 Wait 5 seconds before redirecting
     }
+    else if (status === 403) {
+      // Permission denied — show a toast but do not clear token / auto-logout
+      toast.error(error.response?.data?.message ?? "You don't have permission to perform this action.");
+    } else if (status >= 500) {
+      toast.error("Server error. Try again later.");
+    }
+
     return Promise.reject(error)
   }
 )

@@ -19,9 +19,12 @@ import Button from '../common/Button'
 import Input from '../common/Input'
 import toast from 'react-hot-toast'
 import { quizService } from '../../services/quizService'
+import api from "../../services/api";
+import { progressService } from "../../services/progressService";
+
 
 const CourseDetail = () => {
-  const { id } = useParams()
+  // const { id } = useParams()
   const navigate = useNavigate()
   const { user } = useSelector((state) => state.auth)
   const location = useLocation()
@@ -38,6 +41,8 @@ const CourseDetail = () => {
   const [showTopicModal, setShowTopicModal] = useState(false)
   const [showMaterialModal, setShowMaterialModal] = useState(false)
   const [selectedTopicForMaterial, setSelectedTopicForMaterial] = useState(null)
+  const [courseProgress, setCourseProgress] = useState(null);
+
 
   const [topicForm, setTopicForm] = useState({
     name: '',
@@ -59,9 +64,22 @@ const CourseDetail = () => {
   const [aiQuizModalTopicId, setAiQuizModalTopicId] = useState(null)
   const [generatingQuiz, setGeneratingQuiz] = useState(false)
 
-  const params = useParams();
+  // const params = useParams();
   const isInstructor = user?.role === 'INSTRUCTOR'
   const isStudent = user?.role === 'STUDENT'
+    // -----------------------------
+  // 1️⃣ SAFE COURSE ID EXTRACTION
+let { id } = useParams();
+
+const fallbackId =
+  location.state?.courseId ||
+  location.state?.recommendedCourseId ||
+  location.state?.course?.id;
+
+const courseId = Number(id || fallbackId);
+
+
+ 
 
   const handleBack = () => {
     if (location.state?.from === 'dashboard') {
@@ -74,8 +92,14 @@ const CourseDetail = () => {
   }
 
   useEffect(() => {
+     if (!courseId || isNaN(courseId)) {
+    console.error("Course ID missing!");
+    toast.error("Invalid Course ID");
+    setLoading(false);
+    return;
+  }
     fetchCourseData()
-  }, [id, user])
+  }, [courseId, user])
 
   useEffect(() => {
     if (location.state?.recommendedTopicId && topics.length > 0) {
@@ -93,59 +117,131 @@ const CourseDetail = () => {
 
 
   const fetchCourseData = async () => {
-  setLoading(true);
+    setLoading(true);
 
-  // primary: URL param
-  const idFromParams = params?.id;
+    // primary: URL param
+    // const idFromParams = params?.id;
 
-  // fallback from navigation state
-  const idFromState =
-    location?.state?.courseId || location?.state?.recommendedCourseId;
+    // // fallback from navigation state
+    // const idFromState =
+    //   location?.state?.courseId || location?.state?.recommendedCourseId;
 
-  const courseId = idFromParams ?? idFromState;
+    // const courseId = idFromParams ?? idFromState;
 
-  if (!courseId) {
-    console.error("Course id missing!");
-    setLoading(false);
-    return;
-  }
-
-  try {
-    console.log("Fetching course:", courseId);
-
-    const res = await courseService.getCourseById(courseId, user?.userId);
-
-    // extract actual course object
-    const courseData = res?.data?.data ?? res?.data ?? res;
-
-    if (!courseData) {
-      console.error("No course data received");
+    if (!courseId) {
+      console.error("Course id missing!");
       setLoading(false);
       return;
     }
 
-    // -----------------------------
-    // SET STATE PROPERLY
-    // -----------------------------
-    setCourse(courseData);
-    setIsEnrolled(courseData?.isEnrolled || false);
+    try {
+      console.log("Fetching course:", courseId);
+      console.log("User Role "+user.role)
+      // const res = await courseService.getCourseById(courseId, user?.userId);
 
-    // topics
-    if (Array.isArray(courseData.topics)) {
-      setTopics(courseData.topics);
-    } else {
-      const topicRes = await topicService.getTopicsByCourse(courseId);
-      setTopics(topicRes || []);
+      const res = await courseService.getCourseById(
+        courseId,
+        user.role === "STUDENT" ?  user.userId : null
+        
+      );
+
+
+      // extract actual course object
+      const courseData = res?.data?.data ?? res?.data ?? res;
+
+      if (!courseData) {
+        console.error("No course data received");
+        setLoading(false);
+        return;
+      }
+
+      // -----------------------------
+      // SET STATE PROPERLY
+      // -----------------------------
+      setCourse(courseData);
+      setIsEnrolled(courseData?.isEnrolled || false);
+
+
+      // topics
+      let topicList = [];
+      if (Array.isArray(courseData.topics)) {
+        topicList = courseData.topics;
+        setTopics(courseData.topics);
+      } else {
+        const topicRes = await topicService.getTopicsByCourse(courseId);
+        topicList = topicRes || [];
+        setTopics(topicRes || []);
+      }
+
+
+      // fetch progress from global student progress endpoint
+     
+      await loadProgress(courseId, topicList);
+      
+
+      setLoading(false);
+    } catch (error) {
+      console.error("Error fetching course:", error);
+      toast.error("Failed to load course");
+      setLoading(false);
     }
+  };
 
-    setLoading(false);
-  } catch (error) {
-    console.error("Error fetching course:", error);
-    toast.error("Failed to load course");
-    setLoading(false);
-  }
-};
+  //   const fetchCourseProgress = async (courseId) => {
+  //   try {
+  //     const res = await progressService.getStudentProgress(user.studentId);
 
+  //     const list = res?.data?.data ?? res?.data ?? [];
+
+  //     // find progress for THIS course
+  //     const progress = list.find(p => p.courseId === Number(courseId));
+
+  //     if (progress) {
+  //       setCourseProgress({
+  //         percentage: progress.completionPercentage || 0,
+  //         completedTopics: progress.completedTopics || 0,
+  //         totalTopics: progress.totalTopics || topics.length || 0
+  //       });
+  //     } else {
+  //       // student enrolled but no progress record yet
+  //       setCourseProgress({
+  //         percentage: 0,
+  //         completedTopics: 0,
+  //         totalTopics: topics.length || 0
+  //       });
+  //     }
+
+  //   } catch (err) {
+  //     console.error("Course progress fetch error:", err);
+  //   }
+  // };
+
+  // ----------------------------
+  //  Progress Calculation
+  // ----------------------------
+  const loadProgress = async (courseId, topicList) => {
+    try {
+      const res = await progressService.getStudentProgress(user.studentId);
+      const list = res?.data?.data ?? [];
+
+      const record = list.find((p) => p.courseId === Number(courseId));
+
+      const totalTopics = topicList.length;
+      const percentage = record?.completionPercentage ?? 0;
+
+      // auto-calculated completed topics
+      const completedTopics = Math.round((percentage / 100) * totalTopics);
+
+      setCourseProgress({
+        percentage,
+        completedTopics,
+        totalTopics
+      });
+
+    } catch (err) {
+      console.error("Progress loading failed:", err);
+    }
+  };
 
   const fetchMaterials = async (topicId) => {
     try {
@@ -178,7 +274,7 @@ const CourseDetail = () => {
     }
     setEnrolling(true)
     try {
-      await enrollmentService.enrollCourse(user.userId, parseInt(id))
+      await enrollmentService.enrollCourse(user.userId, courseId)
       toast.success('Enrolled successfully!')
       setIsEnrolled(true)
       await fetchCourseData()
@@ -195,7 +291,7 @@ const CourseDetail = () => {
     try {
       await topicService.createTopic({
         ...topicForm,
-        courseId: parseInt(id)
+        courseId: courseId
       })
 
       toast.success('Topic created successfully!')
@@ -376,6 +472,12 @@ const CourseDetail = () => {
     await fetchCourseData()
   }
 
+  const getProgressColor = (percent) => {
+  if (percent < 30) return "#ef4444";  // red
+  if (percent < 70) return "#facc15";  // yellow
+  return "#22c55e";                    // green
+};
+
   if (loading || !course) return <Loader />
 
   return (
@@ -419,8 +521,8 @@ const CourseDetail = () => {
             <div className="p-6 md:p-8">
               <div className="mb-4 flex items-center justify-between">
                 <span className={`px-4 py-1.5 rounded-full text-sm font-medium ${course.difficultyLevel === 'BEGINNER' ? 'bg-green-100 text-green-800' :
-                    course.difficultyLevel === 'INTERMEDIATE' ? 'bg-yellow-100 text-yellow-800' :
-                      'bg-red-100 text-red-800'
+                  course.difficultyLevel === 'INTERMEDIATE' ? 'bg-yellow-100 text-yellow-800' :
+                    'bg-red-100 text-red-800'
                   }`}>
                   {course.difficultyLevel}
                 </span>
@@ -440,11 +542,68 @@ const CourseDetail = () => {
                 {course.title}
               </h1>
 
+
               <p className="text-gray-600 text-lg mb-6">
                 {course.description || 'No description available.'}
               </p>
 
-              <div className="grid grid-cols-3 gap-4 mb-6">
+              {/* {isStudent && isEnrolled && courseProgress && (
+  <div className="mb-6 bg-white/70 border border-gray-200 shadow-sm rounded-xl p-4">
+    <p className="text-sm font-medium text-gray-600">Your Progress</p>
+
+    <div className="flex items-center justify-between mt-2">
+      <span className="text-xl font-bold text-gray-900">
+        {courseProgress.percentage}%
+      </span>
+      <span className="text-sm text-gray-500">
+        {courseProgress.completedTopics} / {courseProgress.totalTopics} topics
+      </span>
+    </div>
+
+    <div className="mt-3 w-full bg-gray-200 h-3 rounded-full overflow-hidden">
+      <div
+        className="bg-green-500 h-3 rounded-full transition-all duration-500"
+        style={{ width: `${courseProgress.percentage}%` }}
+      ></div>
+    </div>
+  </div>
+)} */}
+              {/* =================== PROGRESS BLOCK =================== */}
+              {isStudent && isEnrolled && courseProgress && (
+                <div className="bg-white border rounded-xl p-4 shadow-sm">
+                  <p className="text-sm text-gray-600">Your Progress</p>
+
+                  <div className="flex justify-between items-center mt-2">
+                    <span className="text-xl font-bold">
+                      {courseProgress.percentage}%
+                    </span>
+
+                    <span className="text-sm text-gray-500">
+                      {courseProgress.completedTopics} / {courseProgress.totalTopics} topics
+                    </span>
+                  </div>
+
+                  {/* <div className="mt-3 h-3 bg-gray-200 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-green-500 transition-all duration-500"
+                      style={{ width: `${courseProgress.percentage}%` }}
+                    />
+                  </div> */}
+                  <div className="mt-3 h-3 bg-gray-200 rounded-full overflow-hidden">
+  <div
+    className="h-full transition-all duration-500"
+    style={{
+      width: `${courseProgress.percentage}%`,
+      backgroundColor: getProgressColor(courseProgress.percentage)
+    }}
+  />
+</div>
+
+                </div>
+              )}
+
+
+              <div className="grid grid-cols-3 gap-4 mt-6 mb-6">
                 <div className="flex items-center space-x-2 text-gray-600">
                   <Users size={20} />
                   <span className="text-sm">{course.totalEnrollments || 0} students</span>
@@ -577,7 +736,9 @@ const CourseDetail = () => {
                                     <div
                                       key={material.id}
                                       className="flex items-center justify-between p-3 bg-white rounded-lg border border-gray-200 hover:border-blue-300 transition-colors cursor-pointer"
-                                      onClick={() => setSelectedMaterial(material)}
+                                      // onClick={() => setSelectedMaterial(material)}
+                                      onClick={() => setSelectedMaterial({ ...material, topicId: topic.id })}
+
                                     >
                                       <div className="flex items-center space-x-3 flex-1">
                                         <div className={`${iconData.bg} p-2 rounded-lg`}>
@@ -874,8 +1035,8 @@ const CourseDetail = () => {
 
       {/* AI Quiz Generator Modal (Instructor) */}
       {showAIQuizModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-40 z-50 flex items-start justify-center pt-24 px-4">
-          <Card className="max-w-2xl w-full p-6 rounded-2xl">
+        <div className="fixed inset-0 backdrop-blur-md bg-white/10 flex items-center justify-center z-50 p-4 transition-all duration-300">
+          <Card className="max-w-lg w-full p-6 max-h-[90vh] overflow-y-auto border-2 border-purple-400 shadow-xl rounded-2xl bg-white/90 backdrop-blur-lg">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-xl font-semibold text-gray-900">AI Quiz Generator</h3>
               <button onClick={() => setShowAIQuizModal(false)}>
@@ -886,7 +1047,7 @@ const CourseDetail = () => {
             {/* UPDATED: Passing instructorId, courseId, topicId */}
             <AIQuizGenerator
               instructorId={user?.userId}
-              courseId={parseInt(id)}
+              courseId={courseId}
               topicId={aiQuizModalTopicId}
             />
           </Card>
@@ -896,13 +1057,17 @@ const CourseDetail = () => {
 
       {/* Material Viewer */}
       {selectedMaterial && (
+
         <MaterialViewer
           material={selectedMaterial}
+          topicId={selectedMaterial?.topicId}
           onClose={() => setSelectedMaterial(null)}
         />
+
       )}
     </div>
   )
 }
 
 export default CourseDetail
+

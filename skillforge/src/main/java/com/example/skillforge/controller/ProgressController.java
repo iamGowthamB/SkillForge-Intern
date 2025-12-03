@@ -2,13 +2,16 @@ package com.example.skillforge.controller;
 
 import com.example.skillforge.dto.request.TopicCompleteRequest;
 import com.example.skillforge.dto.response.ProgressResponse;
+import com.example.skillforge.dto.response.ProgressSummaryResponse;
 import com.example.skillforge.model.entity.CourseProgress;
 import com.example.skillforge.model.entity.Topic;
 import com.example.skillforge.model.entity.TopicProgress;
 import com.example.skillforge.repository.CourseRepository;
 import com.example.skillforge.repository.CourseProgressRepository;
+import com.example.skillforge.repository.TopicProgressRepository;
 import com.example.skillforge.repository.TopicRepository;
 import com.example.skillforge.service.CourseProgressService;
+import com.example.skillforge.service.ProgressService;
 import com.example.skillforge.service.TopicProgressService;
 import com.example.skillforge.dto.response.ApiResponse;
 import lombok.Data;
@@ -28,17 +31,21 @@ public class ProgressController {
     private final CourseProgressRepository courseProgressRepository;
     private final CourseRepository courseRepository;
     private final TopicRepository topicRepository;
-
+    private final ProgressService progressService;
+    private final TopicProgressRepository topicProgressRepository;
 
     public ProgressController(TopicProgressService topicProgressService, CourseProgressService courseProgressService,
                               CourseProgressRepository courseProgressRepository,
                               CourseRepository courseRepository,
-                              TopicRepository topicRepository) {
+                              TopicRepository topicRepository, ProgressService progressService, TopicProgressRepository topicProgressRepository) {
         this.topicProgressService = topicProgressService;
         this.courseProgressService = courseProgressService;
         this.courseProgressRepository = courseProgressRepository;
         this.courseRepository = courseRepository;
         this.topicRepository = topicRepository;
+        this.progressService = progressService;
+        this.topicProgressRepository = topicProgressRepository;
+
     }
 
     /**
@@ -96,10 +103,45 @@ public class ProgressController {
         return ResponseEntity.ok(ApiResponse.success("Topic completed", tp));
     }
 
+    @GetMapping("/student/{studentId}/summary")
+    public ResponseEntity<ApiResponse<ProgressSummaryResponse>> getStudentSummary(@PathVariable Long studentId) {
+
+        ProgressSummaryResponse summary = progressService.getStudentProgressSummary(studentId);
+
+        // fetch topic progress for student (for total time)
+        List<TopicProgress> tps = topicProgressRepository.findByStudentId(studentId);
+
+        long totalSeconds = tps.stream()
+                .mapToLong(tp -> tp.getTimeSpentSeconds() == null ? 0L : tp.getTimeSpentSeconds())
+                .sum();
+
+        summary.setTotalLearningMinutes((int) (totalSeconds / 60));
+
+        return ResponseEntity.ok(ApiResponse.success("Student progress summary", summary));
+    }
+
+    // new endpoint
+    @PostMapping("/topic/add-time")
+    public ResponseEntity<ApiResponse<TopicProgress>> addTimeToTopic(@RequestBody AddTimeRequest req) {
+        if (req.getStudentId() == null || req.getTopicId() == null || req.getSeconds() == null) {
+            return ResponseEntity.badRequest().body(ApiResponse.error("studentId, topicId, and seconds are required"));
+        }
+        TopicProgress updated = topicProgressService.addTimeToTopic(req.getStudentId(), req.getTopicId(), req.getSeconds());
+        return ResponseEntity.ok(ApiResponse.success("Time added", updated));
+    }
+
     // DTO
     @Data
     public static class TopicCompleteRequest {
         private Long studentId;
         private Long topicId;
+    }
+
+    // DTO for adding time:
+    @Data
+    public static class AddTimeRequest {
+        private Long studentId;
+        private Long topicId;
+        private Long seconds; // seconds to add
     }
 }

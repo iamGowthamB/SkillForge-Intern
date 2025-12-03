@@ -27,4 +27,7 @@ public class CourseResponse {
     private LocalDateTime createdAt;
     private Integer progressPercent;  // NEW FIELD
 
+    // ⭐ NEW ⭐ (Needed for sorting dashboard courses)
+    private LocalDateTime lastAccessed;
+
 }

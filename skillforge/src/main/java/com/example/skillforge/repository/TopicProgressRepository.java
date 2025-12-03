@@ -3,7 +3,9 @@ package com.example.skillforge.repository;
 import com.example.skillforge.model.entity.TopicProgress;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
+import java.time.LocalDateTime;
 import java.util.Optional;
 import java.util.List;
 
@@ -20,5 +22,9 @@ public interface TopicProgressRepository extends JpaRepository<TopicProgress, Lo
 """)
     long countCompletedTopics(Long studentId, Long courseId);
 
+    List<TopicProgress> findByStudentId(Long studentId);
+
+    @Query("SELECT t FROM TopicProgress t WHERE t.studentId = :studentId AND t.completedAt >= :since")
+    List<TopicProgress> findCompletedByStudentSince(@Param("studentId") Long studentId, @Param("since") LocalDateTime since);
 }
 

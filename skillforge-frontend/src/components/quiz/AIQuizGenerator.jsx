@@ -47,6 +47,7 @@ export default function AIQuizGenerator({ courseId, topicId, instructorId }) {
     <div className="p-6 bg-white rounded shadow-md">
       <h2 className="text-xl font-bold mb-4">AI Quiz Generator</h2>
 
+
       {/* Topic Name */}
       <input
         className="w-full mb-3 p-2 border rounded"

@@ -130,4 +130,37 @@ public class TopicProgressService {
         return saved;
     }
 
+
+    /**
+     * Adds seconds to topic progress. Returns updated TopicProgress.
+     * This is additive and idempotent-ish for small repeats (we rely on frontend to avoid double-send).
+     */
+    @Transactional
+    public TopicProgress addTimeToTopic(Long studentId, Long topicId, long secondsToAdd) {
+        if (secondsToAdd <= 0) return topicProgressRepository
+                .findByStudentIdAndTopicId(studentId, topicId)
+                .orElseGet(() -> {
+                    TopicProgress tp = new TopicProgress();
+                    tp.setStudentId(studentId);
+                    tp.setTopicId(topicId);
+                    return topicProgressRepository.save(tp);
+                });
+
+        TopicProgress tp = topicProgressRepository.findByStudentIdAndTopicId(studentId, topicId)
+                .orElseGet(() -> {
+                    TopicProgress newTp = new TopicProgress();
+                    newTp.setStudentId(studentId);
+                    newTp.setTopicId(topicId);
+                    newTp.setTimeSpentSeconds(0L);
+                    return newTp;
+                });
+
+        tp.setTimeSpentSeconds((tp.getTimeSpentSeconds() == null ? 0L : tp.getTimeSpentSeconds()) + secondsToAdd);
+        tp.setLastUpdated(LocalDateTime.now());
+        return topicProgressRepository.save(tp);
+    }
+
+    public List<TopicProgress> getProgressForStudent(Long studentId) {
+        return topicProgressRepository.findByStudentId(studentId);
+    }
 }
