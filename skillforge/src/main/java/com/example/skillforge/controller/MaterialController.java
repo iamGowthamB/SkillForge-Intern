@@ -42,14 +42,35 @@ public class MaterialController {
             @RequestParam("file") MultipartFile file
     ) {
         try {
-            MaterialType materialType = MaterialType.valueOf(materialTypeStr.toUpperCase());
+            // Validate file
+            if (file.isEmpty()) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body("File is empty");
+            }
+
+            // Validate material type
+            MaterialType materialType;
+            try {
+                materialType = MaterialType.valueOf(materialTypeStr.toUpperCase());
+            } catch (IllegalArgumentException ie) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body("Invalid materialType. Allowed values: VIDEO, PDF, LINK, TEXT");
+            }
+
+            // Validate file size
+            long maxSize = materialType == MaterialType.VIDEO ? 500L * 1024 * 1024 : 50L * 1024 * 1024;
+            if (file.getSize() > maxSize) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body("File too large. Max size: " + (materialType == MaterialType.VIDEO ? "500MB" : "50MB"));
+            }
+
             Material material = materialService.uploadFileMaterial(topicId, title, description, materialType, file);
             return ResponseEntity.ok(material);
         } catch (IllegalArgumentException ie) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                     .body("Invalid materialType. Allowed values: VIDEO, PDF, LINK, TEXT");
         } catch (Exception ex) {
-            // log.error("uploadMaterial failed", ex);
+            ex.printStackTrace();
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body("Failed to upload material: " + ex.getMessage());
         }

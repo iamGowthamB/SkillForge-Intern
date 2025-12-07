@@ -1282,15 +1282,19 @@ import {
   ArrowRight,
   ChevronLeft,
   ChevronRight,
+  Play,
+  X,
 } from "lucide-react";
 
 import { courseService } from "../../services/courseService";
 import { adaptiveService } from "../../services/adaptiveService";
 import { progressService } from "../../services/progressService";
+import { enrollmentService } from "../../services/enrollmentService";
 
 import Card from "../common/Card";
 import Loader from "../common/Loader";
 import Button from "../common/Button";
+import DashboardOverview from "./DashboardOverview";
 import toast from "react-hot-toast";
 import ProgressTracker from "../progress/ProgressTracker";
 
@@ -1330,6 +1334,32 @@ export default function StudentDashboard() {
     if (percent < 30) return "#ef4444";
     if (percent < 70) return "#facc15";
     return "#22c55e";
+  };
+
+  const handleEnroll = async (e, courseId, courseTitle) => {
+    e.stopPropagation();
+    try {
+      await enrollmentService.enrollCourse(user.userId, courseId);
+      toast.success(`Enrolled in ${courseTitle}!`);
+      loadDashboard(); // Reload to show updated enrollment
+    } catch (error) {
+      console.error('Enrollment failed:', error);
+      toast.error('Failed to enroll in course');
+    }
+  };
+
+  const handleUnenroll = async (e, courseId, courseTitle) => {
+    e.stopPropagation();
+    if (window.confirm(`Are you sure you want to unenroll from "${courseTitle}"?`)) {
+      try {
+        await enrollmentService.unenrollCourse(user.userId, courseId);
+        toast.success('Unenrolled successfully!');
+        loadDashboard(); // Reload to show updated enrollment
+      } catch (error) {
+        console.error('Unenroll failed:', error);
+        toast.error('Failed to unenroll');
+      }
+    }
   };
 
   const getCollection = () => (sortedEnrolled.length === 0 ? popularCourses : sortedEnrolled);
@@ -1409,9 +1439,15 @@ const loadDashboard = async () => {
     setCourses(Array.isArray(courseList) ? courseList : []);
 
     // 2) Fetch student progress (contains lastAccessed)
-    const progResp = await progressService.getStudentProgress(user?.studentId);
-    const progressList = progResp?.data?.data ?? progResp?.data ?? [];
-    setEnrollments(Array.isArray(progressList) ? progressList : []);
+    let progressList = [];
+    if (user?.studentId) {
+      const progResp = await progressService.getStudentProgress(user.studentId);
+      progressList = progResp?.data?.data ?? progResp?.data ?? [];
+      setEnrollments(Array.isArray(progressList) ? progressList : []);
+    } else {
+      console.error('No studentId found for user:', user);
+      setEnrollments([]);
+    }
 
     // 3) AI Suggested Topic — using MOST RECENTLY ACCESSED COURSE
     const enrolledCourses = courseList.filter((c) => c.isEnrolled);
@@ -1420,22 +1456,31 @@ const loadDashboard = async () => {
       
       // sort progress by lastAccessed DESC
       const sortedProgress = [...progressList].sort((a, b) => {
-        return new Date(b.lastAccessed) - new Date(a.lastAccessed);
+        const dateA = new Date(a.lastAccessed || 0).getTime();
+        const dateB = new Date(b.lastAccessed || 0).getTime();
+        return dateB - dateA;
       });
 
       // pick the most recently accessed courseId
       const recentCourseId = sortedProgress[0]?.courseId;
 
-      setSuggestedCourseId(recentCourseId);
+      if (recentCourseId) {
+        setSuggestedCourseId(recentCourseId);
 
-      // call adaptive API
-      const suggestionResp = await adaptiveService.getNextTopic(
-        user?.userId,
-        recentCourseId
-      );
+        // call adaptive API
+        try {
+          const suggestionResp = await adaptiveService.getNextTopic(
+            user?.userId,
+            recentCourseId
+          );
 
-      const topic = suggestionResp?.data?.data ?? suggestionResp?.data ?? null;
-      setNextSuggestion(topic);
+          const topic = suggestionResp?.data?.data ?? suggestionResp?.data ?? null;
+          setNextSuggestion(topic);
+        } catch (adaptiveErr) {
+          console.error("Failed to load adaptive suggestion:", adaptiveErr);
+          // Don't show error to user - AI suggestion is optional
+        }
+      }
     }
 
     // update arrows
@@ -1599,6 +1644,10 @@ const loadDashboard = async () => {
   </div>
 )}
 
+      {/* Comprehensive Dashboard Overview - Performance across all activities */}
+      <div className="mb-10">
+        <DashboardOverview />
+      </div>
 
       {/* Progress Section */}
      <ProgressTracker />
@@ -1715,16 +1764,51 @@ const loadDashboard = async () => {
                     </div>
 
                     {/* Details */}
-                    <div className="p-4 flex-1">
+                    <div className="p-4 flex-1 flex flex-col">
                       <h3 className="font-bold text-gray-900 text-lg line-clamp-1">
                         {course.title}
                       </h3>
                       <p className="text-gray-600 text-sm mt-1 line-clamp-2">
                         {course.description}
                       </p>
-                      <p className="mt-2 text-xs font-semibold text-gray-500">
-                        {course.difficultyLevel}
-                      </p>
+                      <div className="flex items-center justify-between mt-2">
+                        <p className="text-xs font-semibold text-gray-500">
+                          {course.difficultyLevel}
+                        </p>
+                        <p className="text-xs text-gray-500">
+                          {course.totalTopics || 0} topics
+                        </p>
+                      </div>
+
+                      {/* Buttons */}
+                      <div className="flex items-center gap-2 mt-4">
+                        {course.isEnrolled ? (
+                          <>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigate(`/courses/${course.id}`, { state: { from: 'dashboard' } });
+                              }}
+                              className="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition flex items-center justify-center gap-2"
+                            >
+                              <Play size={16} /> Continue
+                            </button>
+                            <button
+                              onClick={(e) => handleUnenroll(e, course.id, course.title)}
+                              className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition flex items-center justify-center gap-1"
+                            >
+                              <X size={16} /> Unenroll
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            onClick={(e) => handleEnroll(e, course.id, course.title)}
+                            className="flex-1 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition"
+                          >
+                            Enroll Now
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </Card>
                 </div>

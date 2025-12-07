@@ -2,12 +2,27 @@ import api from './api'
 
 export const materialService = {
   async uploadMaterial(formData) {
-    const response = await api.post('/materials/upload', formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data'
+    try {
+      const response = await api.post('/materials/upload', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        },
+        timeout: 600000, // 10 minutes timeout for large files
+        onUploadProgress: (progressEvent) => {
+          const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total)
+          console.log(`Upload Progress: ${percentCompleted}%`)
+        }
+      })
+      return response.data
+    } catch (error) {
+      if (error.response?.status === 413) {
+        throw new Error('File too large. Please reduce the file size.')
       }
-    })
-    return response.data
+      if (error.response?.status === 408) {
+        throw new Error('Upload timeout. Please check your internet connection and try again.')
+      }
+      throw error
+    }
   },
 
   async createLinkMaterial(materialData) {

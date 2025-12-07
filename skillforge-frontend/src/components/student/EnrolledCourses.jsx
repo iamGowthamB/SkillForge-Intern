@@ -3,7 +3,8 @@
 // import { useSelector } from 'react-redux'
 // import { enrollmentService } from '../../services/enrollmentService'
 // import { courseService } from '../../services/courseService'
-// import { BookOpen, Clock, Award, TrendingUp, Play, X } from 'lucide-react'
+// import { quizStatisticsService } from '../../services/quizStatisticsService'
+// import { BookOpen, Clock, Award, TrendingUp, Play, X, Target } from 'lucide-react'
 // import Card from '../common/Card'
 // import Loader from '../common/Loader'
 // import Button from '../common/Button'
@@ -264,7 +265,8 @@ import { useNavigate } from 'react-router-dom'
 import { useSelector } from 'react-redux'
 import { enrollmentService } from '../../services/enrollmentService'
 import { courseService } from '../../services/courseService'
-import { BookOpen, Clock, Award, TrendingUp, Play, X } from 'lucide-react'
+import { quizStatisticsService } from '../../services/quizStatisticsService'
+import { BookOpen, Clock, Award, TrendingUp, Play, X, Target } from 'lucide-react'
 import Card from '../common/Card'
 import Loader from '../common/Loader'
 import Button from '../common/Button'
@@ -275,15 +277,42 @@ const EnrolledCourses = () => {
   const { user } = useSelector((state) => state.auth)
   const [enrolledCourses, setEnrolledCourses] = useState([])
   const [loading, setLoading] = useState(true)
+  const [quizStats, setQuizStats] = useState({ overallScore: 0, aiQuizScore: 0, totalAttempts: 0 })
 
   useEffect(() => {
     fetchEnrolledCourses()
+    fetchQuizStatistics()
   }, [user])
 
   const getProgressColor = (percent) => {
     if (percent < 30) return "#ef4444"
     if (percent < 70) return "#facc15"
     return "#22c55e"
+  }
+
+  const fetchQuizStatistics = async () => {
+    try {
+      if (!user?.studentId) return
+      
+      const response = await quizStatisticsService.getOverallQuizStatistics(user.studentId)
+      const stats = response?.data || response
+      
+      if (stats) {
+        // Calculate overall average score
+        const overallScore = stats.averageScore || 0
+        
+        // Calculate AI quiz specific score (if available from backend)
+        const aiQuizScore = stats.aiQuizAverageScore || stats.averageScore || 0
+        
+        setQuizStats({
+          overallScore: Math.round(overallScore),
+          aiQuizScore: Math.round(aiQuizScore),
+          totalAttempts: stats.totalAttempts || 0
+        })
+      }
+    } catch (error) {
+      console.error('Error fetching quiz statistics:', error)
+    }
   }
 
   const fetchEnrolledCourses = async () => {
@@ -342,59 +371,85 @@ const EnrolledCourses = () => {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-        <Card className="p-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 mb-8">
+        <Card className="p-5">
           <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600 mb-1">Total Enrolled</p>
-              <p className="text-3xl font-bold text-gray-900">{enrolledCourses.length}</p>
+            <div className="flex-1">
+              <p className="text-xs font-medium text-gray-600 mb-2">Total Enrolled</p>
+              <p className="text-2xl font-bold text-gray-900">{enrolledCourses.length}</p>
             </div>
-            <div className="bg-blue-500 p-3 rounded-lg">
-              <BookOpen size={24} className="text-white" />
+            <div className="bg-blue-500 p-3 rounded-lg flex-shrink-0">
+              <BookOpen size={20} className="text-white" />
             </div>
           </div>
         </Card>
 
-        <Card className="p-6">
+        <Card className="p-5">
           <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600 mb-1">Completed</p>
-              <p className="text-3xl font-bold text-gray-900">
+            <div className="flex-1">
+              <p className="text-xs font-medium text-gray-600 mb-2">Completed</p>
+              <p className="text-2xl font-bold text-gray-900">
                 {enrolledCourses.filter(c => c.enrollment?.isCompleted).length}
               </p>
             </div>
-            <div className="bg-green-500 p-3 rounded-lg">
-              <Award size={24} className="text-white" />
+            <div className="bg-green-500 p-3 rounded-lg flex-shrink-0">
+              <Award size={20} className="text-white" />
             </div>
           </div>
         </Card>
 
-        <Card className="p-6">
+        <Card className="p-5">
           <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600 mb-1">In Progress</p>
-              <p className="text-3xl font-bold text-gray-900">
+            <div className="flex-1">
+              <p className="text-xs font-medium text-gray-600 mb-2">In Progress</p>
+              <p className="text-2xl font-bold text-gray-900">
                 {enrolledCourses.filter(c => !c.enrollment?.isCompleted).length}
               </p>
             </div>
-            <div className="bg-yellow-500 p-3 rounded-lg">
-              <TrendingUp size={24} className="text-white" />
+            <div className="bg-yellow-500 p-3 rounded-lg flex-shrink-0">
+              <TrendingUp size={20} className="text-white" />
             </div>
           </div>
         </Card>
 
-        <Card className="p-6">
+        <Card className="p-5">
           <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-gray-600 mb-1">Avg Progress</p>
-              <p className="text-3xl font-bold text-gray-900">
+            <div className="flex-1">
+              <p className="text-xs font-medium text-gray-600 mb-2">Avg Progress</p>
+              <p className="text-2xl font-bold text-gray-900">
                 {enrolledCourses.length > 0
                   ? Math.round(enrolledCourses.reduce((sum, c) => sum + (c.progressPercent ?? 0), 0) / enrolledCourses.length)
                   : 0}%
               </p>
             </div>
-            <div className="bg-purple-500 p-3 rounded-lg">
-              <Clock size={24} className="text-white" />
+            <div className="bg-purple-500 p-3 rounded-lg flex-shrink-0">
+              <Clock size={20} className="text-white" />
+            </div>
+          </div>
+        </Card>
+
+        <Card className="p-5">
+          <div className="flex items-center justify-between">
+            <div className="flex-1">
+              <p className="text-xs font-medium text-gray-600 mb-2">MCQ Progress</p>
+              <p className="text-2xl font-bold text-gray-900">{quizStats.overallScore}%</p>
+              <p className="text-xs text-gray-500 mt-1">{quizStats.totalAttempts} attempts</p>
+            </div>
+            <div className="bg-indigo-500 p-3 rounded-lg flex-shrink-0">
+              <Target size={20} className="text-white" />
+            </div>
+          </div>
+        </Card>
+
+        <Card className="p-5">
+          <div className="flex items-center justify-between">
+            <div className="flex-1">
+              <p className="text-xs font-medium text-gray-600 mb-2">AI Quiz Score</p>
+              <p className="text-2xl font-bold text-gray-900">{quizStats.aiQuizScore}%</p>
+              <p className="text-xs text-gray-500 mt-1">Average score</p>
+            </div>
+            <div className="bg-pink-500 p-3 rounded-lg flex-shrink-0">
+              <Target size={20} className="text-white" />
             </div>
           </div>
         </Card>

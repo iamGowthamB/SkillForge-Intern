@@ -14,5 +14,16 @@ export const dashboardService = {
   async getAdminStats() {
     const response = await api.get('/admin/stats')
     return response.data
+  },
+
+  // Comprehensive dashboard statistics
+  async getOverallStatistics(studentId) {
+    const response = await api.get(`/dashboard/student/${studentId}/overall-statistics`)
+    return response
+  },
+
+  async getMyOverallStatistics() {
+    const response = await api.get('/dashboard/my-overall-statistics')
+    return response
   }
 }

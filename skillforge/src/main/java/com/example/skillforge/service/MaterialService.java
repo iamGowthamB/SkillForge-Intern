@@ -20,7 +20,7 @@ public class MaterialService {
 
     private final MaterialRepository materialRepository;
     private final TopicRepository topicRepository;
-    private final S3StorageService s3StorageService;
+    private final LocalStorageService localStorageService;
 
     @Transactional
     public Material uploadFileMaterial(
@@ -34,8 +34,8 @@ public class MaterialService {
         Topic topic = topicRepository.findById(topicId)
                 .orElseThrow(() -> new ResourceNotFoundException("Topic not found"));
 
-        // Upload to S3
-        String fileUrl = s3StorageService.uploadFile(file, "materials");
+        // Upload to local storage
+        String fileUrl = localStorageService.uploadFile(file, "materials");
 
         Material material = new Material();
         material.setTopic(topic);
@@ -91,7 +91,7 @@ public class MaterialService {
                 .orElseThrow(() -> new ResourceNotFoundException("Material not found"));
 
         if (material.getFilePath() != null)
-            s3StorageService.deleteFile(material.getFilePath());
+            localStorageService.deleteFile(material.getFilePath());
 
         Topic topic = material.getTopic();
         topic.getMaterials().remove(material);

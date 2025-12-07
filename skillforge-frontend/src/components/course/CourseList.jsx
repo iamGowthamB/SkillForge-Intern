@@ -520,6 +520,37 @@ const CourseList = () => {
                     </p>
                   </div>
 
+                  {/* Student Buttons */}
+                  {!isInstructor && (
+                    <div className="flex items-center space-x-2 mt-4 pt-4 border-t">
+                      <Button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          navigate(`/courses/${course.id}`, { state: { from: 'courses' } })
+                        }}
+                        variant="secondary"
+                        size="sm"
+                        className="flex-1"
+                      >
+                        View Details
+                      </Button>
+
+                      {!course.isEnrolled && (
+                        <Button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            navigate(`/courses/${course.id}`, { state: { from: 'courses' } })
+                          }}
+                          variant="primary"
+                          size="sm"
+                          className="flex-1"
+                        >
+                          Enroll Now
+                        </Button>
+                      )}
+                    </div>
+                  )}
+
                   {/* Instructor Buttons */}
                   {isInstructor && (
                     <div className="flex items-center space-x-2 mt-4 pt-4 border-t">

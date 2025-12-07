@@ -6,12 +6,16 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+/**
+ * Authentication response containing user details and JWT tokens
+ */
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
 public class AuthResponse {
-    private String token;
+    private String token;          // Access token
+    private String refreshToken;   // Refresh token
     private String type = "Bearer";
     private Long userId;
     private Long studentId;

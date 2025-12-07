@@ -11,7 +11,7 @@ import QuizPlayer from '../quiz/QuizPlayer'
 import AIQuizGenerator from '../quiz/AIQuizGenerator'
 import {
   ArrowLeft, BookOpen, Users, Clock, Award, Play, FileText,
-  CheckCircle, Plus, Edit, Trash2, Upload, ChevronDown, ChevronUp, X
+  CheckCircle, Plus, Edit, Trash2, Upload, ChevronDown, ChevronUp, X, Eye
 } from 'lucide-react'
 import Card from '../common/Card'
 import Loader from '../common/Loader'
@@ -32,6 +32,7 @@ const CourseDetail = () => {
   const [course, setCourse] = useState(null)
   const [topics, setTopics] = useState([])
   const [materials, setMaterials] = useState({})
+  const [materialCounts, setMaterialCounts] = useState({}) // Track accurate counts including quizzes
   const [loading, setLoading] = useState(true)
   const [expandedTopic, setExpandedTopic] = useState(null)
   const [selectedMaterial, setSelectedMaterial] = useState(null)
@@ -59,10 +60,20 @@ const CourseDetail = () => {
     file: null
   })
 
+  const [mcqForm, setMcqForm] = useState({
+    title: '',
+    description: '',
+    difficulty: 'BEGINNER',
+    duration: 10,
+    questions: []
+  })
+
   // New states for quiz interactions
   const [showAIQuizModal, setShowAIQuizModal] = useState(false)
   const [aiQuizModalTopicId, setAiQuizModalTopicId] = useState(null)
   const [generatingQuiz, setGeneratingQuiz] = useState(false)
+  const [showMCQUploadModal, setShowMCQUploadModal] = useState(false)
+  const [selectedTopicForMCQ, setSelectedTopicForMCQ] = useState(null)
 
   // const params = useParams();
   const isInstructor = user?.role === 'INSTRUCTOR'
@@ -175,9 +186,12 @@ const courseId = Number(id || fallbackId);
 
 
       // fetch progress from global student progress endpoint
-     
-      await loadProgress(courseId, topicList);
+      if (user?.role === 'STUDENT' && user?.studentId) {
+        await loadProgress(courseId, topicList);
+      }
       
+      // fetch material counts for all topics
+      await fetchAllMaterialCounts(topicList);
 
       setLoading(false);
     } catch (error) {
@@ -220,6 +234,11 @@ const courseId = Number(id || fallbackId);
   //  Progress Calculation
   // ----------------------------
   const loadProgress = async (courseId, topicList) => {
+    if (!user?.studentId) {
+      console.log('No student ID, skipping progress load');
+      return;
+    }
+    
     try {
       const res = await progressService.getStudentProgress(user.studentId);
       const list = res?.data?.data ?? [];
@@ -243,12 +262,68 @@ const courseId = Number(id || fallbackId);
     }
   };
 
+  // ----------------------------
+  //  Fetch Material Counts for All Topics
+  // ----------------------------
+  const fetchAllMaterialCounts = async (topicList) => {
+    try {
+      const counts = {}
+      await Promise.all(
+        topicList.map(async (topic) => {
+          try {
+            const [materialsResponse, quizzesResponse] = await Promise.all([
+              materialService.getMaterialsByTopic(topic.id),
+              quizService.getQuizByTopic(topic.id)
+            ])
+            // materialService returns array directly, quizService returns ApiResponse wrapper
+            const materials = Array.isArray(materialsResponse) ? materialsResponse : []
+            const quizzes = Array.isArray(quizzesResponse?.data) ? quizzesResponse.data : []
+            counts[topic.id] = materials.length + quizzes.length
+          } catch (err) {
+            console.error(`Failed to fetch count for topic ${topic.id}:`, err)
+            counts[topic.id] = topic.materialsCount || 0
+          }
+        })
+      )
+      setMaterialCounts(counts)
+    } catch (error) {
+      console.error('Error fetching material counts:', error)
+    }
+  }
+
   const fetchMaterials = async (topicId) => {
     try {
-      const response = await materialService.getMaterialsByTopic(topicId)
+      const [materialsResponse, quizzesResponse] = await Promise.all([
+        materialService.getMaterialsByTopic(topicId),
+        quizService.getQuizByTopic(topicId)
+      ])
+      
+      // materialService returns array directly, quizService returns ApiResponse wrapper
+      const materials = Array.isArray(materialsResponse) ? materialsResponse : []
+      const quizzes = Array.isArray(quizzesResponse?.data) ? quizzesResponse.data : []
+      
+      // Combine materials and quizzes
+      const combinedMaterials = [
+        ...materials,
+        ...quizzes.map(quiz => ({
+          id: quiz.id,
+          title: quiz.title,
+          description: quiz.description,
+          materialType: 'QUIZ',
+          topicId: topicId,
+          quiz: quiz
+        }))
+      ]
+      
       setMaterials(prev => ({
         ...prev,
-        [topicId]: response || []
+        [topicId]: combinedMaterials
+      }))
+      
+      // Update count after fetching
+      setMaterialCounts(prev => ({
+        ...prev,
+        [topicId]: combinedMaterials.length
       }))
     } catch (error) {
       console.error('Error fetching materials:', error)
@@ -284,6 +359,44 @@ const courseId = Number(id || fallbackId);
     } finally {
       setEnrolling(false)
     }
+  }
+
+  // Handler to check enrollment before accessing material
+  const handleMaterialClick = (material, topicId) => {
+    if (!isStudent) {
+      // Instructors can always access
+      setSelectedMaterial({ ...material, topicId })
+      return
+    }
+    
+    if (!isEnrolled) {
+      toast.error('Please enroll in this course to access learning materials', {
+        duration: 3000,
+        icon: '🔒'
+      })
+      return
+    }
+    
+    setSelectedMaterial({ ...material, topicId })
+  }
+
+  // Handler to check enrollment before starting quiz
+  const handleQuizClick = (topic) => {
+    if (!isStudent) {
+      // For non-students, use existing behavior
+      handleStartQuiz(topic)
+      return
+    }
+    
+    if (!isEnrolled) {
+      toast.error('Please enroll in this course to access quizzes', {
+        duration: 3000,
+        icon: '🔒'
+      })
+      return
+    }
+    
+    handleStartQuiz(topic)
   }
 
   const handleTopicSubmit = async (e) => {
@@ -332,6 +445,10 @@ const courseId = Number(id || fallbackId);
     try {
       if (materialForm.type === 'LINK') {
         // For external links - use URL-encoded format
+        if (!materialForm.link) {
+          toast.error('Please enter a valid link')
+          return
+        }
         const linkData = {
           topicId: selectedTopicForMaterial,
           title: materialForm.title,
@@ -344,6 +461,12 @@ const courseId = Number(id || fallbackId);
         // For file uploads (VIDEO, PDF)
         if (!materialForm.file) {
           toast.error('Please select a file to upload')
+          return
+        }
+
+        const maxSize = materialForm.type === 'VIDEO' ? 500 * 1024 * 1024 : 50 * 1024 * 1024
+        if (materialForm.file.size > maxSize) {
+          toast.error(`File too large! Max size: ${materialForm.type === 'VIDEO' ? '500MB' : '50MB'}`)
           return
         }
 
@@ -363,7 +486,8 @@ const courseId = Number(id || fallbackId);
       await fetchMaterials(selectedTopicForMaterial)
     } catch (error) {
       console.error('Material upload error:', error)
-      toast.error(error.response?.data || 'Failed to upload material')
+      const errorMsg = error.response?.data?.message || error.message || 'Failed to upload material'
+      toast.error(errorMsg)
     }
   }
 
@@ -384,6 +508,13 @@ const courseId = Number(id || fallbackId);
     setShowMaterialModal(false)
     setSelectedTopicForMaterial(null)
     setMaterialForm({ type: 'VIDEO', title: '', description: '', link: '', file: null })
+    setMcqForm({
+      title: '',
+      description: '',
+      difficulty: 'BEGINNER',
+      duration: 10,
+      questions: []
+    })
   }
 
   const getMaterialIcon = (type) => {
@@ -407,6 +538,11 @@ const courseId = Number(id || fallbackId);
         component: <FileText className="w-5 h-5" />,
         color: 'text-purple-500',
         bg: 'bg-purple-50'
+      },
+      QUIZ: {
+        component: <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z"></path><path fillRule="evenodd" d="M4 5a2 2 0 012-2 1 1 0 000-2H3a1 1 0 00-1 1v14a1 1 0 001 1h14a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 000 2 2 2 0 012 2v2h1a1 1 0 110 2h-1v1a1 1 0 110-2h-1V9a1 1 0 100 2h1v1a1 1 0 110-2h-1v1a1 1 0 110 2h1v2a2 2 0 01-2 2H6a2 2 0 01-2-2V5z" clipRule="evenodd"></path></svg>,
+        color: 'text-orange-500',
+        bg: 'bg-orange-50'
       }
     }
     return icons[type] || icons.PDF
@@ -438,29 +574,155 @@ const courseId = Number(id || fallbackId);
     }
   }
 
-  const handleViewQuiz = async (topic) => {
+  const handleViewQuiz = async (topic, quizType = 'AI') => {
     try {
-      const res = await quizService.getQuizByTopic(topic.id)
+      let res;
+      
+      // Fetch the appropriate quiz type
+      if (quizType === 'AI') {
+        res = await quizService.getAIQuizByTopic(topic.id)
+      } else if (quizType === 'MCQ') {
+        res = await quizService.getMCQByTopic(topic.id)
+      } else {
+        res = await quizService.getQuizByTopic(topic.id)
+      }
+      
       const quiz = res?.data || res
-      // const quiz = res
 
       if (!quiz) {
-        toast('No quiz found to view', { icon: 'ℹ️' })
+        toast(`No ${quizType} quiz found to view`, { icon: 'ℹ️' })
         return
       }
-      // navigate(`/quiz/play/${quiz.id}`, { state: { readonly: true, topicId: topic.id } })
-      // New: navigate with same URL AND pass quizId explicitly in state (fallback)
-      navigate(`/quiz/play/${quiz.id}`, { state: { readonly: true, topicId: topic.id, quizId: quiz.id } })
+      
+      // Navigate with quiz type in state so QuizPlayer can differentiate
+      navigate(`/quiz/play/${quiz.id}`, { 
+        state: { 
+          readonly: true, 
+          topicId: topic.id, 
+          quizId: quiz.id,
+          quizType: quizType // 'AI' or 'MCQ'
+        } 
+      })
 
     } catch (err) {
       console.error('View quiz error', err)
-      toast.error('Failed to open quiz')
+      toast.error(`Failed to open ${quizType} quiz`)
     }
   }
 
   const handleOpenGenerateModal = (topicId) => {
     setAiQuizModalTopicId(topicId)
     setShowAIQuizModal(true)
+  }
+
+  const handleOpenMCQUploadModal = (topicId) => {
+    setSelectedTopicForMCQ(topicId)
+    setShowMCQUploadModal(true)
+    setMcqForm({
+      title: '',
+      description: '',
+      difficulty: 'BEGINNER',
+      duration: 10,
+      questions: [{ questionText: '', options: ['', '', '', ''], correctAnswer: '' }]
+    })
+  }
+
+  const handleCloseMCQUploadModal = () => {
+    setShowMCQUploadModal(false)
+    setSelectedTopicForMCQ(null)
+    setMcqForm({
+      title: '',
+      description: '',
+      difficulty: 'BEGINNER',
+      duration: 10,
+      questions: [{ questionText: '', options: ['', '', '', ''], correctAnswer: '' }]
+    })
+  }
+
+  const addMCQQuestion = () => {
+    setMcqForm({
+      ...mcqForm,
+      questions: [...mcqForm.questions, { questionText: '', options: ['', '', '', ''], correctAnswer: '' }]
+    })
+  }
+
+  const removeMCQQuestion = (index) => {
+    setMcqForm({
+      ...mcqForm,
+      questions: mcqForm.questions.filter((_, i) => i !== index)
+    })
+  }
+
+  const updateMCQQuestion = (index, field, value) => {
+    const updatedQuestions = [...mcqForm.questions]
+    updatedQuestions[index][field] = value
+    setMcqForm({ ...mcqForm, questions: updatedQuestions })
+  }
+
+  const updateMCQOption = (qIndex, oIndex, value) => {
+    const updatedQuestions = [...mcqForm.questions]
+    updatedQuestions[qIndex].options[oIndex] = value
+    setMcqForm({ ...mcqForm, questions: updatedQuestions })
+  }
+
+  const handleMCQUploadSubmit = async (e) => {
+    e.preventDefault()
+
+    try {
+      // Validate form
+      if (!mcqForm.title.trim()) {
+        toast.error('Quiz title is required')
+        return
+      }
+
+      if (mcqForm.questions.length === 0) {
+        toast.error('At least one question is required')
+        return
+      }
+
+      // Validate questions
+      for (let i = 0; i < mcqForm.questions.length; i++) {
+        const q = mcqForm.questions[i]
+        if (!q.questionText.trim()) {
+          toast.error(`Question ${i + 1} text is required`)
+          return
+        }
+        if (q.options.some(opt => !opt.trim())) {
+          toast.error(`Question ${i + 1} must have all options filled`)
+          return
+        }
+        if (!q.correctAnswer) {
+          toast.error(`Question ${i + 1} must have a correct answer selected`)
+          return
+        }
+      }
+
+      // Transform to AIQuizResponse format
+      const aiQuizResponse = {
+        questions: mcqForm.questions.map(q => ({
+          questionText: q.questionText,
+          options: q.options,
+          correctAnswer: q.correctAnswer,
+          points: 1,
+          explanation: '',
+          difficulty: mcqForm.difficulty
+        }))
+      }
+
+      // Save to backend
+      await quizService.saveAIQuiz({
+        instructorId: user.userId,
+        courseId: courseId,
+        topicId: selectedTopicForMCQ,
+        title: mcqForm.title
+      }, aiQuizResponse)
+
+      toast.success('MCQ Quiz uploaded successfully!')
+      handleCloseMCQUploadModal()
+    } catch (error) {
+      console.error('MCQ upload error:', error)
+      toast.error(error.response?.data?.message || 'Failed to upload MCQ quiz')
+    }
   }
 
   const handleAIGeneratedSaved = async (savedQuiz) => {
@@ -670,6 +932,7 @@ const courseId = Number(id || fallbackId);
               <div className="space-y-3">
                 {topics.map((topic, index) => {
                   const topicMaterials = materials[topic.id] || []
+                  const materialCount = materialCounts[topic.id] ?? topic.materialsCount ?? 0
 
                   return (
                     <div key={topic.id} className="border border-gray-200 rounded-lg">
@@ -684,7 +947,7 @@ const courseId = Number(id || fallbackId);
                           <div className="flex-1">
                             <h3 className="font-semibold text-gray-900">{topic.name}</h3>
                             <p className="text-sm text-gray-500">
-                              {topicMaterials.length} material{topicMaterials.length !== 1 ? 's' : ''}
+                              {materialCount} material{materialCount !== 1 ? 's' : ''}
                             </p>
                           </div>
                         </div>
@@ -732,27 +995,41 @@ const courseId = Number(id || fallbackId);
                               <div className="space-y-2">
                                 {topicMaterials.map((material) => {
                                   const iconData = getMaterialIcon(material.materialType)
+                                  const isLocked = isStudent && !isEnrolled
+                                  
                                   return (
                                     <div
                                       key={material.id}
-                                      className="flex items-center justify-between p-3 bg-white rounded-lg border border-gray-200 hover:border-blue-300 transition-colors cursor-pointer"
-                                      // onClick={() => setSelectedMaterial(material)}
-                                      onClick={() => setSelectedMaterial({ ...material, topicId: topic.id })}
-
+                                      className={`flex items-center justify-between p-3 bg-white rounded-lg border border-gray-200 transition-colors ${
+                                        isLocked ? 'opacity-60 cursor-not-allowed' : 'hover:border-blue-300 cursor-pointer'
+                                      }`}
+                                      onClick={() => handleMaterialClick(material, topic.id)}
                                     >
                                       <div className="flex items-center space-x-3 flex-1">
-                                        <div className={`${iconData.bg} p-2 rounded-lg`}>
+                                        <div className={`${iconData.bg} p-2 rounded-lg relative`}>
                                           <div className={iconData.color}>
                                             {iconData.component}
                                           </div>
+                                          {isLocked && (
+                                            <div className="absolute inset-0 flex items-center justify-center bg-black/20 rounded-lg">
+                                              <svg className="w-4 h-4 text-gray-700" fill="currentColor" viewBox="0 0 20 20">
+                                                <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+                                              </svg>
+                                            </div>
+                                          )}
                                         </div>
                                         <div className="flex-1">
-                                          <p className="font-medium text-gray-900">{material.title}</p>
+                                          <div className="flex items-center gap-2">
+                                            <p className="font-medium text-gray-900">{material.title}</p>
+                                            {isLocked && (
+                                              <span className="text-xs bg-gray-200 text-gray-700 px-2 py-0.5 rounded-full">🔒 Locked</span>
+                                            )}
+                                          </div>
                                           {material.description && (
                                             <p className="text-xs text-gray-500">{material.description}</p>
                                           )}
                                           <p className="text-xs text-gray-400 mt-1">
-                                            {material.materialType} • Click to view
+                                            {material.materialType} • {isLocked ? 'Enroll to access' : 'Click to view'}
                                           </p>
                                         </div>
                                       </div>
@@ -793,12 +1070,14 @@ const courseId = Number(id || fallbackId);
                               <div className="flex items-center space-x-2">
                                 {isStudent && (
                                   <Button
-                                    onClick={() => handleStartQuiz(topic)}
-                                    variant="primary"
+                                    onClick={() => handleQuizClick(topic)}
+                                    variant={!isEnrolled ? "secondary" : "primary"}
                                     size="sm"
-                                    icon={Play}
+                                    icon={!isEnrolled ? undefined : Play}
+                                    disabled={!isEnrolled}
+                                    className={!isEnrolled ? "opacity-60 cursor-not-allowed" : ""}
                                   >
-                                    Start Quiz
+                                    {!isEnrolled ? '🔒 Locked' : 'Start Quiz'}
                                   </Button>
                                 )}
 
@@ -814,12 +1093,36 @@ const courseId = Number(id || fallbackId);
                                     </Button>
 
                                     <Button
-                                      onClick={() => handleViewQuiz(topic)}
-                                      variant="primary"
+                                      onClick={() => handleOpenMCQUploadModal(topic.id)}
+                                      variant="secondary"
                                       size="sm"
-                                      className="bg-purple-600 border-purple-600"
+                                      icon={Upload}
+                                      className="bg-white border border-blue-300 text-blue-700 hover:bg-blue-50"
+                                      title="Upload MCQ questions manually"
                                     >
-                                      View Quiz
+                                      Upload MCQ
+                                    </Button>
+
+                                    <Button
+                                      onClick={() => handleViewQuiz(topic, 'AI')}
+                                      variant="secondary"
+                                      size="sm"
+                                      icon={Eye}
+                                      className="bg-white border border-purple-300 text-purple-700 hover:bg-purple-50"
+                                      title="View AI Generated Quiz"
+                                    >
+                                      View AI Quiz
+                                    </Button>
+
+                                    <Button
+                                      onClick={() => handleViewQuiz(topic, 'MCQ')}
+                                      variant="secondary"
+                                      size="sm"
+                                      icon={Eye}
+                                      className="bg-white border border-blue-300 text-blue-700 hover:bg-blue-50"
+                                      title="View Uploaded MCQ"
+                                    >
+                                      View MCQ
                                     </Button>
                                   </>
                                 )}
@@ -829,7 +1132,8 @@ const courseId = Number(id || fallbackId);
                             {/* Small hint line */}
                             <p className="mt-3 text-xs text-gray-500">
                               {isInstructor ? 'Generate a quiz using AI or view the latest saved quiz (read-only).' :
-                                'Start the latest quiz for this topic. If no quiz exists ask your instructor to generate one.'}
+                                isEnrolled ? 'Start the latest quiz for this topic. If no quiz exists ask your instructor to generate one.' :
+                                '🔒 Enroll in this course to access quizzes and test your knowledge.'}
                             </p>
                           </div>
                           {/* ===== end quiz section ===== */}
@@ -999,12 +1303,23 @@ const courseId = Number(id || fallbackId);
                   placeholder="https://example.com or https://youtube.com/watch?v=..."
                   required
                 />
-              ) : (
+              ) : materialForm.type !== 'MCQ' ? (
                 <div className="space-y-1">
                   <label className="block text-sm font-medium text-gray-700">Upload File</label>
                   <input
                     type="file"
-                    onChange={(e) => setMaterialForm({ ...materialForm, file: e.target.files[0] })}
+                    onChange={(e) => {
+                      const file = e.target.files[0]
+                      if (file) {
+                        const maxSize = materialForm.type === 'VIDEO' ? 500 * 1024 * 1024 : 50 * 1024 * 1024
+                        if (file.size > maxSize) {
+                          toast.error(`File too large! Max: ${materialForm.type === 'VIDEO' ? '500MB' : '50MB'}`)
+                          e.target.value = ''
+                          return
+                        }
+                      }
+                      setMaterialForm({ ...materialForm, file })
+                    }}
                     accept={materialForm.type === 'VIDEO' ? 'video/*' : 'application/pdf'}
                     className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
                     required
@@ -1018,7 +1333,7 @@ const courseId = Number(id || fallbackId);
                     {materialForm.type === 'VIDEO' ? 'Max size: 500MB' : 'Max size: 50MB'}
                   </p>
                 </div>
-              )}
+              ) : null}
 
               <div className="flex space-x-3 pt-4">
                 <Button type="submit" variant="primary" className="flex-1" icon={Upload}>
@@ -1055,15 +1370,168 @@ const courseId = Number(id || fallbackId);
       )}
 
 
-      {/* Material Viewer */}
+      {/* Material Viewer or Quiz Player */}
       {selectedMaterial && (
+        <>
+          {selectedMaterial.materialType === 'QUIZ' ? (
+            <QuizPlayer
+              quiz={selectedMaterial.quiz}
+              onClose={() => setSelectedMaterial(null)}
+            />
+          ) : (
+            <MaterialViewer
+              material={selectedMaterial}
+              topicId={selectedMaterial?.topicId}
+              onClose={() => setSelectedMaterial(null)}
+            />
+          )}
+        </>
+      )}
 
-        <MaterialViewer
-          material={selectedMaterial}
-          topicId={selectedMaterial?.topicId}
-          onClose={() => setSelectedMaterial(null)}
-        />
+      {/* MCQ Upload Modal (Instructor) */}
+      {showMCQUploadModal && (
+        <div className="fixed inset-0 backdrop-blur-md bg-white/10 flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <Card className="max-w-2xl w-full p-6 max-h-[90vh] overflow-y-auto border-2 border-blue-400 shadow-xl rounded-2xl bg-white">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xl font-semibold text-gray-900">Upload MCQ Quiz</h3>
+              <button onClick={handleCloseMCQUploadModal}>
+                <X size={20} className="text-gray-600" />
+              </button>
+            </div>
 
+            <form onSubmit={handleMCQUploadSubmit} className="space-y-4">
+              {/* Quiz Title */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Quiz Title *</label>
+                <Input
+                  value={mcqForm.title}
+                  onChange={(e) => setMcqForm({ ...mcqForm, title: e.target.value })}
+                  placeholder="Enter quiz title"
+                  required
+                />
+              </div>
+
+              {/* Description */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                <textarea
+                  value={mcqForm.description}
+                  onChange={(e) => setMcqForm({ ...mcqForm, description: e.target.value })}
+                  placeholder="Enter quiz description"
+                  rows="2"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 resize-none"
+                />
+              </div>
+
+              {/* Difficulty & Duration */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Difficulty</label>
+                  <select
+                    value={mcqForm.difficulty}
+                    onChange={(e) => setMcqForm({ ...mcqForm, difficulty: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="BEGINNER">Beginner</option>
+                    <option value="INTERMEDIATE">Intermediate</option>
+                    <option value="ADVANCED">Advanced</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Duration (minutes)</label>
+                  <Input
+                    type="number"
+                    value={mcqForm.duration}
+                    onChange={(e) => setMcqForm({ ...mcqForm, duration: parseInt(e.target.value) })}
+                    min="1"
+                    required
+                  />
+                </div>
+              </div>
+
+              {/* Questions */}
+              <div className="border-t pt-4">
+                <h4 className="font-semibold text-gray-900 mb-3">Questions ({mcqForm.questions.length})</h4>
+
+                <div className="space-y-4 max-h-[400px] overflow-y-auto">
+                  {mcqForm.questions.map((question, qIndex) => (
+                    <Card key={qIndex} className="p-4 bg-gray-50 border border-gray-200">
+                      <div className="flex justify-between items-start mb-2">
+                        <h5 className="font-semibold text-gray-700">Question {qIndex + 1}</h5>
+                        {mcqForm.questions.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => removeMCQQuestion(qIndex)}
+                            className="text-red-600 hover:text-red-800 text-sm"
+                          >
+                            Remove
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Question Text */}
+                      <textarea
+                        value={question.questionText}
+                        onChange={(e) => updateMCQQuestion(qIndex, 'questionText', e.target.value)}
+                        placeholder="Enter question"
+                        rows="2"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 mb-3 resize-none"
+                        required
+                      />
+
+                      {/* Options */}
+                      <div className="space-y-2 mb-3">
+                        {question.options.map((option, oIndex) => (
+                          <div key={oIndex} className="flex items-center gap-2">
+                            <span className="text-sm font-medium text-gray-600 w-8">{String.fromCharCode(65 + oIndex)}.</span>
+                            <input
+                              type="text"
+                              value={option}
+                              onChange={(e) => updateMCQOption(qIndex, oIndex, e.target.value)}
+                              placeholder={`Option ${String.fromCharCode(65 + oIndex)}`}
+                              className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                              required
+                            />
+                            <label className="flex items-center gap-2">
+                              <input
+                                type="radio"
+                                name={`correct-${qIndex}`}
+                                value={option}
+                                checked={question.correctAnswer === option}
+                                onChange={(e) => updateMCQQuestion(qIndex, 'correctAnswer', e.target.value)}
+                                required
+                              />
+                              <span className="text-xs text-gray-600">Correct</span>
+                            </label>
+                          </div>
+                        ))}
+                      </div>
+                    </Card>
+                  ))}
+                </div>
+
+                <Button
+                  type="button"
+                  onClick={addMCQQuestion}
+                  variant="secondary"
+                  className="mt-3 w-full"
+                >
+                  Add Question
+                </Button>
+              </div>
+
+              {/* Submit Buttons */}
+              <div className="flex space-x-3 pt-4 border-t">
+                <Button type="submit" variant="primary" className="flex-1">
+                  Upload MCQ Quiz
+                </Button>
+                <Button type="button" variant="secondary" onClick={handleCloseMCQUploadModal} className="flex-1">
+                  Cancel
+                </Button>
+              </div>
+            </form>
+          </Card>
+        </div>
       )}
     </div>
   )

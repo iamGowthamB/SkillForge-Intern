@@ -39,7 +39,8 @@ export const fetchCourseById = createAsyncThunk(
   async ({ id, studentId }, { rejectWithValue }) => {
     try {
       const response = await courseService.getCourseById(id, studentId)
-      return response.data
+      // Extract data from ApiResponse wrapper if needed
+      return response.data?.data || response.data || response
     } catch (error) {
       return rejectWithValue(error.response?.data?.message || 'Failed to fetch course')
     }

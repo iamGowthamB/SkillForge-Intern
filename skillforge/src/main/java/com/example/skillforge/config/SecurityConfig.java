@@ -33,14 +33,16 @@ public class SecurityConfig {
         http
                 .csrf(AbstractHttpConfigurer::disable)
                 .headers(headers -> headers
-                        .frameOptions(frame -> frame.disable())  // ✅ UPDATED - No deprecation
+                        .frameOptions(frame -> frame.disable())
                 )
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(
                                 "/api/auth/**",
                                 "/api/public/**",
                                 "/api/health",
+                                "/health",
                                 "/api/materials/**",
+                                "/api/files/**",
                                 "/api/progress/material/complete",
                                 "/api/progress/topic/add-time",
                                 "/api/progress/topic/complete",
@@ -48,7 +50,8 @@ public class SecurityConfig {
                                 "/api/adaptive/next-topic",
                                 "/api/topics/**",
                                 "/api/enrollments/**",
-                                "/api/progress/**"
+                                "/api/progress/**",
+                                "/error"
                         ).permitAll()  // ALL UNPROTECTED ENDPOINTS HERE
 
                         .requestMatchers("/api/materials/view-pdf/**").permitAll()  // ✅ Allow PDF viewing

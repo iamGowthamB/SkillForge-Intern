@@ -1,20 +1,20 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { useDispatch, useSelector } from 'react-redux'
-import { fetchCourseById, updateCourse } from '../../store/slices/courseSlice'
+import { useSelector } from 'react-redux'
+import { courseService } from '../../services/courseService'
 import { ArrowLeft, Save } from 'lucide-react'
 import Card from '../common/Card'
 import Input from '../common/Input'
 import Button from '../common/Button'
 import Loader from '../common/Loader'
+import toast from 'react-hot-toast'
 
 const EditCourse = () => {
   const { id } = useParams()
-  const dispatch = useDispatch()
   const navigate = useNavigate()
   const { user } = useSelector((state) => state.auth)
-  const { selectedCourse, loading } = useSelector((state) => state.course)
 
+  const [loading, setLoading] = useState(true)
   const [formData, setFormData] = useState({
     title: '',
     description: '',
@@ -24,20 +24,36 @@ const EditCourse = () => {
   })
 
   useEffect(() => {
-    dispatch(fetchCourseById({ id, studentId: user?.userId }))
-  }, [dispatch, id, user])
+    fetchCourseData()
+  }, [id])
 
-  useEffect(() => {
-    if (selectedCourse) {
-      setFormData({
-        title: selectedCourse.title || '',
-        description: selectedCourse.description || '',
-        difficultyLevel: selectedCourse.difficultyLevel || 'BEGINNER',
-        duration: selectedCourse.duration || '',
-        thumbnailUrl: selectedCourse.thumbnailUrl || ''
-      })
+  const fetchCourseData = async () => {
+    try {
+      setLoading(true)
+      const response = await courseService.getCourseById(id, null)
+      
+      // Handle different response structures
+      const courseData = response?.data?.data || response?.data || response
+      
+      console.log('EditCourse - Full response:', response)
+      console.log('EditCourse - Extracted courseData:', courseData)
+      
+      if (courseData) {
+        setFormData({
+          title: courseData.title || '',
+          description: courseData.description || '',
+          difficultyLevel: courseData.difficultyLevel || 'BEGINNER',
+          duration: courseData.duration || '',
+          thumbnailUrl: courseData.thumbnailUrl || ''
+        })
+      }
+    } catch (error) {
+      console.error('Error fetching course:', error)
+      toast.error('Failed to load course data')
+    } finally {
+      setLoading(false)
     }
-  }, [selectedCourse])
+  }
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value })
@@ -45,10 +61,16 @@ const EditCourse = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
-    const result = await dispatch(updateCourse({ id, courseData: formData }))
-    
-    if (result.type === 'course/updateCourse/fulfilled') {
+    try {
+      setLoading(true)
+      await courseService.updateCourse(id, formData)
+      toast.success('Course updated successfully!')
       navigate(`/courses/${id}`)
+    } catch (error) {
+      console.error('Error updating course:', error)
+      toast.error('Failed to update course')
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -56,7 +78,7 @@ const EditCourse = () => {
     navigate(`/courses/${id}`)
   }
 
-  if (loading && !selectedCourse) return <Loader />
+  if (loading) return <Loader />
 
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
